@@ -135,7 +135,7 @@ protected:
 #if ENABLE_MEMS
     processMEMS(0);
 #endif
-    delay(5);
+    processBLE(0);
   }
 };
 
@@ -167,6 +167,15 @@ void printTimeoutStats()
   Serial.print(timeoutsOBD);
   Serial.print(" Network:");
   Serial.println(timeoutsNet);
+}
+
+void beep(int duration)
+{
+    // turn on buzzer at 2000Hz frequency 
+    sys.buzzer(2000);
+    delay(duration);
+    // turn off buzzer
+    sys.buzzer(0);
 }
 
 #if LOG_EXT_SENSORS
@@ -255,7 +264,6 @@ void processOBD(CBuffer* buffer)
         printTimeoutStats();
         break;
     }
-    processBLE(0);
     if (tier > 1) break;
   }
   int kph = obdData[0].value;
@@ -303,15 +311,13 @@ bool processGPS(CBuffer* buffer)
 
   if (buffer) {
     buffer->add(PID_GPS_TIME, ELEMENT_UINT32, &gd->time, sizeof(uint32_t));
-    if (gd->lat && gd->lng) {
-      buffer->add(PID_GPS_LATITUDE, ELEMENT_FLOAT, &gd->lat, sizeof(float));
-      buffer->add(PID_GPS_LONGITUDE, ELEMENT_FLOAT, &gd->lng, sizeof(float));
-      buffer->add(PID_GPS_ALTITUDE, ELEMENT_FLOAT_D1, &gd->alt, sizeof(float)); /* m */
-      buffer->add(PID_GPS_SPEED, ELEMENT_FLOAT_D1, &kph, sizeof(kph));
-      buffer->add(PID_GPS_HEADING, ELEMENT_UINT16, &gd->heading, sizeof(uint16_t));
-      buffer->add(PID_GPS_SAT_COUNT, ELEMENT_UINT8, &gd->sat, sizeof(uint8_t));
-      buffer->add(PID_GPS_HDOP, ELEMENT_UINT8, &gd->hdop, sizeof(uint8_t));
-    }
+    buffer->add(PID_GPS_LATITUDE, ELEMENT_FLOAT, &gd->lat, sizeof(float));
+    buffer->add(PID_GPS_LONGITUDE, ELEMENT_FLOAT, &gd->lng, sizeof(float));
+    buffer->add(PID_GPS_ALTITUDE, ELEMENT_FLOAT_D1, &gd->alt, sizeof(float)); /* m */
+    buffer->add(PID_GPS_SPEED, ELEMENT_FLOAT_D1, &kph, sizeof(kph));
+    buffer->add(PID_GPS_HEADING, ELEMENT_UINT16, &gd->heading, sizeof(uint16_t));
+    if (gd->sat) buffer->add(PID_GPS_SAT_COUNT, ELEMENT_UINT8, &gd->sat, sizeof(uint8_t));
+    if (gd->hdop) buffer->add(PID_GPS_HDOP, ELEMENT_UINT8, &gd->hdop, sizeof(uint8_t));
   }
   
   // generate ISO time string
@@ -330,10 +336,10 @@ bool processGPS(CBuffer* buffer)
   Serial.print(' ');
   Serial.print((int)kph);
   Serial.print("km/h");
-  if (gd->sat) {
-    Serial.print(" SATS:");
-    Serial.print(gd->sat);
-  }
+  Serial.print(" SATS:");
+  Serial.print(gd->sat);
+  Serial.print(" HDOP:");
+  Serial.print(gd->hdop);
   Serial.print(" Course:");
   Serial.print(gd->heading);
 
@@ -466,12 +472,6 @@ void printTime()
 *******************************************************************************/
 void initialize()
 {
-    // turn on buzzer at 2000Hz frequency 
-  sys.buzzer(2000);
-  delay(100);
-  // turn off buzzer
-  sys.buzzer(0);
-
   // dump buffer data
   bufman.purge();
 
@@ -586,7 +586,7 @@ void showStats()
   Serial.print(teleClient.rxBytes);
   Serial.print(" bytes | ");
   Serial.print((unsigned int)((uint64_t)(teleClient.txBytes + teleClient.rxBytes) * 3600 / (millis() - teleClient.startTime)));
-  Serial.print(" KB/hour");
+  Serial.print(" KB/h");
 
   Serial.println();
 #if ENABLE_OLED
@@ -823,16 +823,6 @@ bool initCell(bool quick = false)
     } else {
       Serial.print(teleClient.cell.getBuffer());
     }
-
-    for (int n = 0; n < 3; n++) {
-      rssi = teleClient.cell.RSSI();
-      if (rssi) {
-        Serial.print("RSSI:");
-        Serial.print(rssi);
-        Serial.println("dBm");
-      }
-      delay(1000);
-    }
   }
   timeoutsNet = 0;
   return state.check(STATE_CELL_CONNECTED);
@@ -868,19 +858,6 @@ void telemetry(void* inst)
       teleClient.reset();
       bufman.purge();
 
-#if GNSS == GNSS_INTERNAL || GNSS == GNSS_EXTERNAL
-      if (state.check(STATE_GPS_READY)) {
-        Serial.println("[GPS] OFF");
-#if GNSS_ALWAYS_ON
-        sys.gpsEnd(false);
-#else
-        sys.gpsEnd(true);
-#endif
-        state.clear(STATE_GPS_READY);
-      }
-      gd = 0;
-#endif
-
       uint32_t t = millis();
       do {
         delay(1000);
@@ -908,7 +885,7 @@ void telemetry(void* inst)
       }
       continue;
     }
-    
+
 #if ENABLE_WIFI
     if (!state.check(STATE_WIFI_CONNECTED)) {
       Serial.print("[WIFI] Joining SSID:");
@@ -930,10 +907,13 @@ void telemetry(void* inst)
         connErrors = 0;
         if (teleClient.connect()) {
           state.set(STATE_WIFI_CONNECTED | STATE_NET_READY);
+          beep(50);
           // switch off cellular module when wifi connected
-          teleClient.cell.end();
-          state.clear(STATE_CELL_CONNECTED);
-          Serial.println("[CELL] Deactivated");
+          if (state.check(STATE_CELL_CONNECTED)) {
+            teleClient.cell.end();
+            state.clear(STATE_CELL_CONNECTED);
+            Serial.println("[CELL] Deactivated");
+          }
         }
       } else if (state.check(STATE_WIFI_CONNECTED) && !teleClient.wifi.connected()) {
         Serial.println("[WIFI] Disconnected");
@@ -945,10 +925,11 @@ void telemetry(void* inst)
         if (!initCell() || !teleClient.connect()) {
           teleClient.cell.end();
           state.clear(STATE_NET_READY | STATE_CELL_CONNECTED);
-          delay(15000);
           break;
         }
         Serial.println("[CELL] In service");
+        state.set(STATE_NET_READY);
+        beep(50);
       }
 
       if (millis() - lastRssiTime > SIGNAL_CHECK_INTERVAL * 1000) {
@@ -989,6 +970,7 @@ void telemetry(void* inst)
       buffer->serialize(store);
       bufman.free(buffer);
       store.tailer();
+      Serial.print("[DAT] ");
       Serial.println(store.buffer());
 
       // start transmission
@@ -1067,6 +1049,16 @@ void standby()
     logger.end();
   }
 #endif
+
+#if !GNSS_ALWAYS_ON && (GNSS == GNSS_INTERNAL || GNSS == GNSS_EXTERNAL)
+  if (state.check(STATE_GPS_READY)) {
+    Serial.println("[GPS] OFF");
+    sys.gpsEnd(true);
+    state.clear(STATE_GPS_READY);
+    gd = 0;
+  }
+#endif
+
   state.clear(STATE_WORKING | STATE_OBD_READY | STATE_STORAGE_READY);
   // this will put co-processor into sleep mode
 #if ENABLE_OLED
@@ -1090,7 +1082,7 @@ void standby()
   sys.resetLink();
 #if RESET_AFTER_WAKEUP
 #if ENABLE_MEMS
-  mems->end();  
+  if (mems) mems->end();  
 #endif
   ESP.restart();
 #endif  
@@ -1164,8 +1156,10 @@ void showSysInfo()
 void loadConfig()
 {
   size_t len;
-  len = sizeof(apn);
-  nvs_get_str(nvs, "CELL_APN", apn, &len);
+  if (!*apn) {
+    len = sizeof(apn);
+    nvs_get_str(nvs, "CELL_APN", apn, &len);
+  }
 #if ENABLE_WIFI
   len = sizeof(wifiSSID);
   nvs_get_str(nvs, "WIFI_SSID", wifiSSID, &len);
@@ -1220,8 +1214,11 @@ void processBLE(int timeout)
 #if ENABLE_WIFI
       n += snprintf(buf + n, bufsize - n, "%s", wifiSSID);
 #endif
-    } else {   
-      n += snprintf(buf + n, bufsize - n, "%s", netop.length() ? netop.c_str() : "-");
+    } else {
+      snprintf(buf + n, bufsize - n, "%s", netop.length() ? netop.c_str() : "-");
+      char *p = strchr(buf + n, ' ');
+      if (p) *p = 0;
+      n += strlen(buf + n);
     }
   } else if (!strcmp(cmd, "NET_IP")) {
     n += snprintf(buf + n, bufsize - n, "%s", ip.length() ? ip.c_str() : "-");
@@ -1404,13 +1401,16 @@ if (!state.check(STATE_MEMS_READY)) do {
     break;
   } 
   delete mems;
+  /*
   mems = new MPU9250;
   ret = mems->begin();
   if (ret) {
     state.set(STATE_MEMS_READY);
     Serial.println("MPU-9250");
     break;
-  } 
+  }
+  */
+  mems = 0;
   Serial.println("NO");
 } while (0);
 #endif
