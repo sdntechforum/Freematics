@@ -1,0 +1,50 @@
+who
+    2  yum install unzip mysql-server
+    3  sudo yum install unzip mysql-server
+    4  sudo yum install -y unzip mysql-server
+    5  mysql -u root --execute="ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'root'; GRANT ALL ON *.* TO 'root'@'localhost' WITH GRANT OPTION; FLUSH PRIVILEGES; CREATE DATABASE traccar;"
+    6  sudo yum install -y mysql-client
+    7  sudo yum install -y mysql client
+    8  sudo /etc/init.d/mysql/start
+    9  systemctl start mysql
+   10  sudo systemctl start mysql
+   11  sudo rpm -qa mysql
+   12  sudo systemctl start mysqld
+   13  sudo systemctl status mysqld
+   14  sudo systemctl enable mysqld
+   15  mysql -u root --execute="ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'root'; GRANT ALL ON *.* TO 'root'@'localhost' WITH GRANT OPTION; FLUSH PRIVILEGES; CREATE DATABASE traccar;"
+   16  wget https://www.traccar.org/download/traccar-linux-64-latest.zip
+   17  unzip traccar-linux-*.zip && ./traccar.run
+   18  sudo unzip traccar-linux-*.zip && ./traccar.run
+   19  sudo su
+   20  systemctl status mysql
+   21  cat /proc/sys/net/ipv6/conf/all/disable_ipv6
+   22  systemctl status mysql
+   23  systemctl status mysqld
+   24  systemctl status traccar
+   25  netstat -tanlp
+   26  netstat -tanlp | grep 8082
+   27  netstat -tnl | grep 8082
+   28  netstat -tnl
+   29  ifconfig
+   30  curl 150.136.63.93:8082
+   31  curl localhost:8082
+   32  curl -v localhost:8082
+   33  netstat -tnl
+   34  netstat -tnl | grep 8082
+   35  iptables --version
+   36  sudo iptables -L
+   37  sudo systemctl status firewalld
+   38  sudo firewall-cmd --list-all
+   39  sudo firewall-cmd --zone=public --list-all
+   40  sudo firewall-cmd --zone=public --list-ports
+   41  sudo firewall-cmd --permanent --add-port=8082/tcp
+   42  sudo firewall-cmd --reload
+   43  sudo firewall-cmd --list-ports
+   44  sudo firewall-cmd --permanent --add-port=5170/udp
+   45  sudo firewall-cmd --reload
+   46  sudo firewall-cmd --list-ports
+   47  free -m
+   48  top
+   49  sudo firewall-cmd --list-ports
+   50  curl 150.136.63.93:8082
