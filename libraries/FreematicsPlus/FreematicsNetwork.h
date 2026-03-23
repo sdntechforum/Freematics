@@ -121,6 +121,10 @@ public:
     char* getBuffer();
     const char* deviceName() { return m_model; }
     char IMEI[16] = {0};
+    /** GSM SMS (SIM7600/SIM5360-style AT); use only while modem is powered and not mid-UDP-send */
+    bool smsEnsureTextMode();
+    bool smsReadOldestUnread(char* body, size_t bodyLen, char* sender, size_t senderLen, int* index);
+    bool smsDeleteByIndex(int index);
 protected:
     bool sendCommand(const char* cmd, unsigned int timeout = 1000, const char* expected = 0);
     virtual void checkGPS();
@@ -130,6 +134,8 @@ protected:
     CFreematics* m_device = 0;
     GPS_DATA* m_gps = 0;
     CELL_TYPE m_type = CELL_SIM7600;
+    bool m_smsTextMode = false;
+    bool smsAT(const char* cmd, char* buf, size_t buflen, unsigned int timeout);
 };
 
 class CellUDP : public CellSIMCOM

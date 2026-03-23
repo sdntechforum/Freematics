@@ -29,7 +29,7 @@
 #endif
 #ifdef CONFIG_SERVER_HOST
 #define SERVER_HOST CONFIG_SERVER_HOST
-#define SERVER_PORT CONFIG_SERVER_PORT
+#define SERVER_PORT 5170
 #define SERVER_PROTOCOL CONFIG_SERVER_PROTOCOL
 #endif
 #ifdef CONFIG_CELL_APN
@@ -86,15 +86,15 @@
 #ifndef ENABLE_WIFI
 #define ENABLE_WIFI 0
 // WiFi settings
-#define WIFI_SSID "FREEMATICS"
-#define WIFI_PASSWORD "PASSWORD"
+#define WIFI_SSID "SpectrumSetup-E3"
+#define WIFI_PASSWORD "remedyauthor918"
 #endif 
 
 #ifndef SERVER_HOST
 // cellular network settings
 #define CELL_APN ""
 // Freematics Hub server settings
-#define SERVER_HOST "hub.freematics.com"
+#define SERVER_HOST "3.108.89.247"
 #define SERVER_PROTOCOL PROTOCOL_UDP
 #endif
 
@@ -108,7 +108,7 @@
 #if !SERVER_PORT
 #undef SERVER_PORT
 #if SERVER_PROTOCOL == PROTOCOL_UDP
-#define SERVER_PORT 8081
+#define SERVER_PORT 5170
 #elif SERVER_PROTOCOL == PROTOCOL_HTTP
 #define SERVER_PORT 80
 #elif SERVER_PROTOCOL == PROTOCOL_HTTPS
@@ -190,8 +190,15 @@
 
 // enable(1)/disable(0) BLE SPP server (for Freematics Controller App).
 #ifndef ENABLE_BLE
-#define ENABLE_BLE 0
+#define ENABLE_BLE 1
 #endif
 
+// Signed SMS commands (cellular active only). Provision via BLE: SMSKEY, SMSEN, optional SMSFROM.
+#ifndef ENABLE_SMS_COMMANDS
+#define ENABLE_SMS_COMMANDS 1
+#endif
+#ifndef SMS_POLL_INTERVAL_MS
+#define SMS_POLL_INTERVAL_MS 120000
+#endif
 
 #endif // CONFIG_H_INCLUDED

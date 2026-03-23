@@ -212,6 +212,7 @@ char* WifiHTTP::receive(char* buffer, int bufsize, int* pbytes, unsigned int tim
 bool CellSIMCOM::begin(CFreematics* device)
 {
   getBuffer();
+  m_smsTextMode = false;
   m_device = device;
   for (byte n = 0; n < 30; n++) {
     device->xbTogglePower(200);
@@ -257,6 +258,7 @@ bool CellSIMCOM::begin(CFreematics* device)
 
 void CellSIMCOM::end()
 {
+  m_smsTextMode = false;
   setGPS(false);
   if (m_type == CELL_SIM7070) {
     if (!sendCommand("AT+CPOWD=1\r", 1000, "NORMAL POWER DOWN")) {
@@ -619,6 +621,103 @@ char* CellSIMCOM::getBuffer()
 {
   if (!m_buffer) m_buffer = (char*)malloc(RECV_BUF_SIZE);
   return m_buffer;
+}
+
+bool CellSIMCOM::smsAT(const char* cmd, char* buf, size_t buflen, unsigned int timeout)
+{
+  if (!m_device || !buf || buflen < 16) return false;
+  if (cmd) {
+    m_device->xbWrite(cmd);
+    delay(50);
+  }
+  buf[0] = 0;
+  const char* answers[] = {"\r\nOK", "\r\nERROR"};
+  byte ret = m_device->xbReceive(buf, (int)buflen, timeout, answers, 2);
+  return ret == 1;
+}
+
+bool CellSIMCOM::smsEnsureTextMode()
+{
+  if (m_smsTextMode) return true;
+  char tmp[96];
+  if (!smsAT("AT+CMGF=1\r", tmp, sizeof(tmp), 3000)) return false;
+  m_smsTextMode = true;
+  return true;
+}
+
+static bool smsExtractSecondQuotedField(const char* cmglLine, char* oa, size_t oaLen)
+{
+  const char *p = strstr(cmglLine, "+CMGL:");
+  if (!p) return false;
+  int nq = 0;
+  const char *c = p;
+  while ((c = strchr(c, '"'))) {
+    const char *start = ++c;
+    const char *end = strchr(start, '"');
+    if (!end) return false;
+    if (nq == 1) {
+      size_t n = (size_t)(end - start);
+      if (n >= oaLen) n = oaLen - 1;
+      memcpy(oa, start, n);
+      oa[n] = 0;
+      return true;
+    }
+    nq++;
+    c = end + 1;
+  }
+  return false;
+}
+
+static bool smsParseCmglBlock(char* block, char* body, size_t bodyLen, char* sender, size_t senderLen, int* index)
+{
+  char *p = strstr(block, "+CMGL:");
+  if (!p) return false;
+  char *hdrEnd = strpbrk(p, "\r\n");
+  if (!hdrEnd) return false;
+  char saved = *hdrEnd;
+  *hdrEnd = 0;
+  if (sscanf(p, "+CMGL: %d", index) != 1) {
+    *hdrEnd = saved;
+    return false;
+  }
+  if (!smsExtractSecondQuotedField(p, sender, senderLen)) {
+    sender[0] = 0;
+  }
+  *hdrEnd = saved;
+  char *bodyStart = hdrEnd;
+  while (*bodyStart == '\r' || *bodyStart == '\n') bodyStart++;
+  char *ok = strstr(bodyStart, "\r\nOK");
+  if (!ok) ok = strstr(bodyStart, "\nOK");
+  if (!ok) return false;
+  size_t bl = (size_t)(ok - bodyStart);
+  while (bl > 0 && (bodyStart[bl - 1] == '\r' || bodyStart[bl - 1] == '\n')) bl--;
+  if (bl >= bodyLen) bl = bodyLen - 1;
+  memcpy(body, bodyStart, bl);
+  body[bl] = 0;
+  return true;
+}
+
+bool CellSIMCOM::smsReadOldestUnread(char* body, size_t bodyLen, char* sender, size_t senderLen, int* index)
+{
+  if (!body || !index || bodyLen < 8 || !sender || senderLen < 4) return false;
+  body[0] = 0;
+  sender[0] = 0;
+  *index = -1;
+  if (!smsEnsureTextMode()) return false;
+  enum { SMS_RX = 512 };
+  char stackBuf[SMS_RX];
+  if (!smsAT("AT+CMGL=\"REC UNREAD\"\r", stackBuf, SMS_RX, 8000)) return false;
+  if (!strstr(stackBuf, "+CMGL:")) return false;
+  return smsParseCmglBlock(stackBuf, body, bodyLen, sender, senderLen, index);
+}
+
+bool CellSIMCOM::smsDeleteByIndex(int index)
+{
+  if (index < 0) return false;
+  char cmd[28];
+  snprintf(cmd, sizeof(cmd), "AT+CMGD=%d\r", index);
+  char tmp[64];
+  return smsAT(cmd, tmp, sizeof(tmp), 8000);
 }
 
 bool CellUDP::open(const char* host, uint16_t port)

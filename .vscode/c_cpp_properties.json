@@ -1,0 +1,21 @@
+{
+  "version": 4,
+  "configurations": [
+    {
+      "name": "Telelogger ESP32-C3 (PlatformIO)",
+      "compileCommands": "${workspaceFolder}/firmware_v5/telelogger/compile_commands.json",
+      "compilerPath": "${env:HOME}/.platformio/packages/toolchain-riscv32-esp/bin/riscv32-esp-elf-g++",
+      "cStandard": "c11",
+      "cppStandard": "c++11",
+      "intelliSenseMode": "gcc-arm"
+    },
+    {
+      "name": "Telelogger ESP32 Xtensa (PlatformIO)",
+      "compileCommands": "${workspaceFolder}/firmware_v5/telelogger/compile_commands.json",
+      "compilerPath": "${env:HOME}/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf-g++",
+      "cStandard": "c11",
+      "cppStandard": "c++11",
+      "intelliSenseMode": "gcc-arm"
+    }
+  ]
+}

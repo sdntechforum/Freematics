@@ -1,0 +1,15 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Telelogger: compile_commands + .ino IntelliSense patch",
+      "type": "shell",
+      "command": "\"${env:HOME}/.platformio/penv/bin/pio\" run -d \"${workspaceFolder}/firmware_v5/telelogger\" -t compiledb && python3 \"${workspaceFolder}/firmware_v5/telelogger/patch_ino_compile_db.py\"",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}

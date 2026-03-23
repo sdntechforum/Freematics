@@ -17,6 +17,7 @@
 #include "string.h"
 #include "esp_gap_ble_api.h"
 #include "esp_gatts_api.h"
+#include "esp_gatt_common_api.h"
 #include "esp_bt_defs.h"
 #include "esp_bt_main.h"
 #include "driver/uart.h"
@@ -56,6 +57,10 @@ static uint16_t spp_mtu_size = 23;
 static uint16_t spp_conn_id = 0xffff;
 static esp_gatt_if_t spp_gatts_if = 0xff;
 static xQueueHandle cmd_cmd_queue = NULL;
+static size_t s_ble_payload_len;
+
+/* Queue item: malloc(sizeof(size_t) + len + 1); first size_t is payload length; bytes follow; trailing NUL. */
+#define BLE_CMD_BLK_PAYLOAD(b) ((char *)((uint8_t *)(b) + sizeof(size_t)))
 
 static bool enable_data_ntf = false;
 static bool is_connected = false;
@@ -121,11 +126,11 @@ static const uint8_t char_prop_read_write = ESP_GATT_CHAR_PROP_BIT_WRITE_NR|ESP_
 
 ///SPP Service - command characteristic, read&write without response
 static const uint16_t spp_command_uuid = ESP_GATT_UUID_SPP_COMMAND_RECEIVE;
-static const uint8_t  spp_command_val[10] = {0x00};
+static const uint8_t spp_command_val[1] = {0};
 
 ///SPP Service - status characteristic, notify&read
 static const uint16_t spp_status_uuid = ESP_GATT_UUID_SPP_COMMAND_NOTIFY;
-static const uint8_t  spp_status_val[10] = {0x00};
+static const uint8_t spp_status_val[1] = {0};
 static const uint8_t  spp_status_ccc[2] = {0x00, 0x00};
 
 ///Full HRS Database Description - Used to add attributes into the database
@@ -210,16 +215,26 @@ void ble_send(int spp_index, void* data, int len)
 
 char* ble_recv_command(int timeout)
 {
-    char *cmd = 0;
-    if(cmd_cmd_queue && xQueueReceive(cmd_cmd_queue, &cmd, timeout / portTICK_PERIOD_MS)) {
-        return cmd;
+    void *blk = NULL;
+    s_ble_payload_len = 0;
+    if (!cmd_cmd_queue || !xQueueReceive(cmd_cmd_queue, &blk, timeout / portTICK_PERIOD_MS) || !blk) {
+        return NULL;
     }
-    return 0;
+    s_ble_payload_len = *(size_t *)blk;
+    return BLE_CMD_BLK_PAYLOAD(blk);
+}
+
+size_t ble_recv_payload_len(void)
+{
+    return s_ble_payload_len;
 }
 
 void ble_send_response(void* data, int len, char* ptr_to_free)
 {
-    if (ptr_to_free) free(ptr_to_free);
+    if (ptr_to_free) {
+        void *blk = (uint8_t *)ptr_to_free - sizeof(size_t);
+        free(blk);
+    }
     if (len > 0) {
         esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_STATUS_VAL], len, (uint8_t*)data, false);
     }
@@ -228,7 +243,7 @@ void ble_send_response(void* data, int len, char* ptr_to_free)
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
 {
     esp_err_t err;
-    ESP_LOGE(GATTS_TABLE_TAG, "GAP_EVT, event %d\n", event);
+    ESP_LOGD(GATTS_TABLE_TAG, "GAP_EVT, event %d", event);
 
     switch (event) {
     case ESP_GAP_BLE_ADV_DATA_RAW_SET_COMPLETE_EVT:
@@ -274,17 +289,28 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
             if(p_data->write.is_prep == false){
                 ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_WRITE_EVT : handle = %d\n", res);
                 if(res == SPP_IDX_SPP_COMMAND_VAL){
-                    uint8_t * spp_cmd_buff = (uint8_t *)malloc(p_data->write.len + 1);
-                    if(spp_cmd_buff == NULL){
+                    size_t wlen = p_data->write.len;
+                    uint8_t *blk = (uint8_t *)malloc(sizeof(size_t) + wlen + 1);
+                    if (blk == NULL) {
                         ESP_LOGE(GATTS_TABLE_TAG, "%s malloc failed\n", __func__);
                         break;
                     }
-                    memcpy(spp_cmd_buff,p_data->write.value,p_data->write.len);
-                    spp_cmd_buff[p_data->write.len] = 0;
-                    if (xQueueSend(cmd_cmd_queue,&spp_cmd_buff,0) == errQUEUE_FULL) {
-                        char *temp;
-                        xQueueReceive(cmd_cmd_queue, &temp, 0);
-                        xQueueSend(cmd_cmd_queue,&spp_cmd_buff,0);
+                    *(size_t *)blk = wlen;
+                    if (wlen && p_data->write.value) {
+                        memcpy(BLE_CMD_BLK_PAYLOAD(blk), p_data->write.value, wlen);
+                    }
+                    BLE_CMD_BLK_PAYLOAD(blk)[wlen] = 0;
+#ifdef SPP_DEBUG_MODE
+                    ESP_LOGI(GATTS_TABLE_TAG, "CMD write len=%u handle=FFE1", (unsigned)wlen);
+#endif
+                    void *q = blk;
+                    if (xQueueSend(cmd_cmd_queue, &q, 0) == errQUEUE_FULL) {
+                        void *old = NULL;
+                        xQueueReceive(cmd_cmd_queue, &old, 0);
+                        if (old) {
+                            free(old);
+                        }
+                        (void)xQueueSend(cmd_cmd_queue, &q, 0);
                     }
                 }else if(res == SPP_IDX_SPP_DATA_NTF_CFG){
                     if((p_data->write.len == 2)&&(p_data->write.value[0] == 0x01)&&(p_data->write.value[1] == 0x00)){
@@ -329,6 +355,10 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     	    spp_gatts_if = gatts_if;
     	    is_connected = true;
     	    memcpy(&spp_remote_bda,&p_data->connect.remote_bda,sizeof(esp_bd_addr_t));
+    	    /* Allow one ATT write to carry e.g. SMSKEY= + 64 hex (needs MTU > default 23). */
+    	    if (esp_ble_gatt_set_local_mtu(517) != ESP_OK) {
+    	        ESP_LOGW(GATTS_TABLE_TAG, "set_local_mtu failed");
+    	    }
         	break;
     	case ESP_GATTS_DISCONNECT_EVT:
     	    is_connected = false;
