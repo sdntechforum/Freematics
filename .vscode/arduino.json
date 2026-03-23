@@ -1,0 +1,5 @@
+{
+    "port": "/dev/tty.usbserial-210",
+    "board": "arduino:avr:unomini",
+    "sketch": "firmware_v5/telelogger/telelogger.ino"
+}
